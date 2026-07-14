@@ -1,0 +1,1 @@
+export type Trade={id:string,date:string,instrument:string,direction:'Long'|'Short',setup:string,session:string,entry:number,stopLoss:number,takeProfit:number,exit:number,risk:number,pnl:number,rMultiple:number,outcome:'Win'|'Loss'|'BE',emotion:string,followedPlan:boolean,notes:string,screenshot?:string};
