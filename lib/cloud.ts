@@ -4,8 +4,23 @@ import { getSession,isSupabaseConfigured,refreshSession,setSession,supabaseFetch
 const BUCKET='trade-screenshots';
 export type CloudUser={id:string;email?:string};
 export async function getCloudUser():Promise<CloudUser|null>{if(!isSupabaseConfigured())return null;let session=getSession();if(session?.expires_at&&session.expires_at*1000<Date.now()+60000)session=await refreshSession();return session?.user?{id:session.user.id,email:session.user.email}:null}
-export async function signUp(email:string,password:string){if(!isSupabaseConfigured())throw new Error('Supabase environment variables are missing.');const data=await supabaseFetch('/auth/v1/signup',{method:'POST',body:JSON.stringify({email,password})},false);if(data.access_token)setSession(data);window.dispatchEvent(new Event('tradesea-auth'))}
-export async function signIn(email:string,password:string){if(!isSupabaseConfigured())throw new Error('Supabase environment variables are missing.');const data=await supabaseFetch('/auth/v1/token?grant_type=password',{method:'POST',body:JSON.stringify({email,password})},false);setSession(data);window.dispatchEvent(new Event('tradesea-auth'))}
+export type AuthResult={signedIn:boolean;needsConfirmation:boolean;message:string};
+export async function signUp(email:string,password:string):Promise<AuthResult>{
+ if(!isSupabaseConfigured())throw new Error('Supabase environment variables are missing.');
+ const cleanEmail=email.trim().toLowerCase();
+ const data=await supabaseFetch('/auth/v1/signup',{method:'POST',body:JSON.stringify({email:cleanEmail,password})},false);
+ if(data?.access_token){setSession(data);window.dispatchEvent(new Event('tradesea-auth'));return{signedIn:true,needsConfirmation:false,message:'Account created. Cloud sync is now active.'}}
+ const hasUser=Boolean(data?.user?.id);
+ if(hasUser)return{signedIn:false,needsConfirmation:true,message:'Account created. Check your email and tap the confirmation link, then return and sign in.'};
+ throw new Error('Supabase did not create the account. Check that Email sign-ups are enabled in your Supabase project.');
+}
+export async function signIn(email:string,password:string):Promise<AuthResult>{
+ if(!isSupabaseConfigured())throw new Error('Supabase environment variables are missing.');
+ const data=await supabaseFetch('/auth/v1/token?grant_type=password',{method:'POST',body:JSON.stringify({email:email.trim().toLowerCase(),password})},false);
+ if(!data?.access_token||!data?.user)throw new Error('Supabase returned an incomplete login response.');
+ setSession(data);window.dispatchEvent(new Event('tradesea-auth'));
+ return{signedIn:true,needsConfirmation:false,message:'Signed in. Your cloud journal is syncing.'};
+}
 export async function signOut(){try{await supabaseFetch('/auth/v1/logout',{method:'POST'})}catch{}setSession(null);window.dispatchEvent(new Event('tradesea-auth'))}
 
 async function uploadScreenshot(userId:string,trade:Trade):Promise<Trade>{if(!trade.screenshot?.startsWith('data:image'))return trade;const match=trade.screenshot.match(/^data:(image\/[^;]+);base64,(.+)$/);if(!match)return trade;const mime=match[1],bytes=Uint8Array.from(atob(match[2]),c=>c.charCodeAt(0)),ext=mime.includes('png')?'png':'jpg',path=`${userId}/${trade.id}.${ext}`;await supabaseFetch(`/storage/v1/object/${BUCKET}/${path}`,{method:'POST',headers:{'Content-Type':mime,'x-upsert':'true'},body:bytes});return{...trade,screenshot:undefined,screenshotPath:path}}
